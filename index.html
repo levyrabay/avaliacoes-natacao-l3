@@ -318,6 +318,7 @@ let auth=null, db=null, usuarioAtual=null, ehAdmin=false, papelAtual='professor'
 function podeVerTodas(){ return ehAdmin || papelAtual==='coordenador' || papelAtual==='recepcao'; }
 function podeExportar(){ return ehAdmin || papelAtual==='coordenador' || papelAtual==='recepcao'; }
 function podeEditar(){ return ehAdmin || papelAtual==='coordenador' || papelAtual==='professor'; }
+let nomeExibicao='', todosUsuarios=[], sortProfField=null, sortProfDir=1;
 const CONFIGURADO = firebaseConfig.apiKey && firebaseConfig.apiKey !== "COLE_AQUI";
 
 if(CONFIGURADO){
@@ -398,19 +399,20 @@ function traduzErro(e){
 async function aoEntrar(u){
   usuarioAtual=u;
   ehAdmin=(u.email||'').toLowerCase()===ADMIN_EMAIL.toLowerCase();
-  if(ehAdmin){ papelAtual='admin'; liberarApp(u); return; }
+  if(ehAdmin){ papelAtual='admin'; nomeExibicao=u.displayName||u.email; liberarApp(u); return; }
   try{
     const snap=await db.collection('usuarios').doc(u.uid).get();
     const d=snap.exists?snap.data():{};
     papelAtual=d.role||'professor';
+    nomeExibicao=d.nome||u.displayName||u.email;
     if((d.status||'pendente')==='aprovado') liberarApp(u);
     else mostrarGate(d.status||'pendente');
   }catch(e){ mostrarGate('pendente'); }
 }
 function liberarApp(u){
   esconderTudo(); document.getElementById('app').classList.remove('hidden');
-  document.getElementById('user-nome').textContent=u.displayName||u.email;
-  document.getElementById('r-prof').textContent=u.displayName||'Professor(a)';
+  document.getElementById('user-nome').textContent=nomeExibicao||u.email;
+  document.getElementById('r-prof').textContent=nomeExibicao||'Professor(a)';
   const labels={admin:'ADMIN',coordenador:'COORDENADOR',recepcao:'RECEPÇÃO',professor:'PROFESSOR'};
   const badge=document.getElementById('user-badge'); badge.textContent=labels[papelAtual]||'PROFESSOR'; badge.classList.remove('hidden');
   document.getElementById('tab-prof').classList.toggle('hidden',!ehAdmin);
@@ -499,7 +501,7 @@ function salvar(){
     nivel:document.getElementById('nivel').value, semestre:document.getElementById('semestre').value,
     ano:document.getElementById('ano').value, data:document.getElementById('data').value,
     marcacoes:lerMarcacoes(), observacoes:document.getElementById('obs').value.trim(),
-    professor:usuarioAtual.displayName||usuarioAtual.email, professorUid:usuarioAtual.uid,
+    professor:nomeExibicao||usuarioAtual.email, professorUid:usuarioAtual.uid,
     atualizadoEm:firebase.firestore.FieldValue.serverTimestamp() };
   const ref=editandoId ? db.collection('avaliacoes').doc(editandoId).set(dados,{merge:true})
                        : db.collection('avaliacoes').add({...dados, criadoEm:firebase.firestore.FieldValue.serverTimestamp()});
@@ -585,32 +587,55 @@ async function excluirSelecionadas(){
 function novaAvaliacao(){
   editandoId=null; document.getElementById('aluno').value=''; document.getElementById('data').value=hoje();
   document.getElementById('obs').value='';
-  document.getElementById('r-prof').textContent=(usuarioAtual&&(usuarioAtual.displayName||usuarioAtual.email))||'Professor(a)';
+  document.getElementById('r-prof').textContent=nomeExibicao||'Professor(a)';
   montarTabela(document.getElementById('nivel').value); atualizar(); status('Nova avaliação em branco.');
 }
 
 /* ---------------- GESTÃO DE PROFESSORES (admin) ---------------- */
+const COLSPROF=[{k:'nome',l:'Nome'},{k:'email',l:'E-mail'},{k:'status',l:'Situação'},{k:'role',l:'Perfil'}];
+function valOrdProf(u,f){
+  if(f==='status'){ const o={pendente:0,aprovado:1,bloqueado:2}; return (o[u.status]??9); }
+  if(f==='role') return (u.role||'professor');
+  return (u[f]||'').toString().toLowerCase();
+}
+function ordenarProf(f){ if(sortProfField===f){sortProfDir=-sortProfDir;}else{sortProfField=f;sortProfDir=1;} renderProfessores(); }
 function carregarProfessores(){
   if(!db||!ehAdmin)return;
   db.collection('usuarios').get().then(snap=>{
-    const us=[]; snap.forEach(d=>us.push({id:d.id,...d.data()}));
-    us.sort((a,b)=>{ const o={pendente:0,aprovado:1,bloqueado:2}; return (o[a.status]??9)-(o[b.status]??9); });
-    const cont=document.getElementById('prof-conteudo');
-    if(!us.length){ cont.innerHTML='<div class="vazio">Nenhum professor cadastrado ainda.</div>'; return; }
-    let h='<table class="lista"><thead><tr><th>Nome</th><th>E-mail</th><th>Situação</th><th>Perfil</th><th>Ações</th></tr></thead><tbody>';
-    us.forEach(u=>{
-      const st=u.status||'pendente'; const role=u.role||'professor'; let acoes='';
-      if(st!=='aprovado') acoes+=`<button class="mini-ok" onclick="aprovar('${u.id}')">Aprovar</button>`;
-      if(st!=='bloqueado') acoes+=`<button class="mini-bloq" onclick="bloquear('${u.id}')">Bloquear</button>`;
-      acoes+=`<button class="mini-del" onclick="removerProf('${u.id}','${esc(u.nome||'')}')">Remover</button>`;
-      const sel=`<select class="sel-papel" onchange="definirPapel('${u.id}',this.value)">`+
-        `<option value="professor"${role==='professor'?' selected':''}>Professor</option>`+
-        `<option value="coordenador"${role==='coordenador'?' selected':''}>Coordenador</option>`+
-        `<option value="recepcao"${role==='recepcao'?' selected':''}>Recepção</option></select>`;
-      h+=`<tr><td><b>${esc(u.nome||'')}</b></td><td>${esc(u.email||'')}</td><td><span class="pill ${st}">${st}</span></td><td>${sel}</td><td><div class="acoes">${acoes}</div></td></tr>`;
-    });
-    h+='</tbody></table>'; cont.innerHTML=h;
+    todosUsuarios=[]; snap.forEach(d=>todosUsuarios.push({id:d.id,...d.data()}));
+    renderProfessores();
   }).catch(e=>{ document.getElementById('prof-conteudo').innerHTML='<div class="vazio">Não foi possível carregar: '+e.message+'</div>'; });
+}
+function renderProfessores(){
+  const cont=document.getElementById('prof-conteudo');
+  let us=todosUsuarios.slice();
+  if(sortProfField){ us.sort((a,b)=>{const x=valOrdProf(a,sortProfField),y=valOrdProf(b,sortProfField);return (x<y?-1:x>y?1:0)*sortProfDir;}); }
+  else { us.sort((a,b)=>{ const o={pendente:0,aprovado:1,bloqueado:2}; return (o[a.status]??9)-(o[b.status]??9); }); }
+  if(!us.length){ cont.innerHTML='<div class="vazio">Nenhum usuário cadastrado ainda.</div>'; return; }
+  const seta=k=> sortProfField===k ? (sortProfDir===1?' ▲':' ▼') : ' <span class="seta-off">⇅</span>';
+  let h='<table class="lista"><thead><tr>';
+  COLSPROF.forEach(c=> h+=`<th class="ord" onclick="ordenarProf('${c.k}')">${c.l}${seta(c.k)}</th>`);
+  h+='<th>Ações</th></tr></thead><tbody>';
+  us.forEach(u=>{
+    const st=u.status||'pendente'; const role=u.role||'professor'; let acoes='';
+    if(st!=='aprovado') acoes+=`<button class="mini-ok" onclick="aprovar('${u.id}')">Aprovar</button>`;
+    if(st!=='bloqueado') acoes+=`<button class="mini-bloq" onclick="bloquear('${u.id}')">Bloquear</button>`;
+    acoes+=`<button class="mini-open" onclick="editarNome('${u.id}')">Editar nome</button>`;
+    acoes+=`<button class="mini-del" onclick="removerProf('${u.id}','${esc(u.nome||'')}')">Remover</button>`;
+    const sel=`<select class="sel-papel" onchange="definirPapel('${u.id}',this.value)">`+
+      `<option value="professor"${role==='professor'?' selected':''}>Professor</option>`+
+      `<option value="coordenador"${role==='coordenador'?' selected':''}>Coordenador</option>`+
+      `<option value="recepcao"${role==='recepcao'?' selected':''}>Recepção</option></select>`;
+    h+=`<tr><td><b>${esc(u.nome||'')}</b></td><td>${esc(u.email||'')}</td><td><span class="pill ${st}">${st}</span></td><td>${sel}</td><td><div class="acoes">${acoes}</div></td></tr>`;
+  });
+  h+='</tbody></table>'; cont.innerHTML=h;
+}
+function editarNome(uid){
+  if(!ehAdmin)return;
+  const u=todosUsuarios.find(x=>x.id===uid); if(!u)return;
+  const novo=prompt('Editar o nome de "'+(u.nome||'(sem nome)')+'":', u.nome||'');
+  if(novo===null)return; const nome=novo.trim(); if(!nome)return;
+  db.collection('usuarios').doc(uid).update({nome}).then(carregarProfessores);
 }
 function aprovar(uid){ db.collection('usuarios').doc(uid).update({status:'aprovado'}).then(carregarProfessores); }
 function definirPapel(uid,role){ if(!ehAdmin)return; db.collection('usuarios').doc(uid).update({role}).then(carregarProfessores); }
