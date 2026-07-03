@@ -239,6 +239,7 @@
         <label for="obs">Observações <span style="opacity:.7">(opcional — aparece no PDF só se preenchido)</span></label>
         <textarea id="obs" rows="3" placeholder="Escreva aqui observações sobre o aluno, se quiser..."></textarea>
         <button id="btn-corrigir" class="btn ghost" onclick="corrigirObs()">✨ Corrigir texto</button>
+        <button id="btn-melhorar" class="btn ghost" onclick="melhorarObs()">🪄 Melhorar texto</button>
         <span class="status" id="status-obs"></span>
       </div>
       <div class="actbar">
@@ -737,42 +738,52 @@ async function gerarPDF(){
   catch(e){ status('Erro ao gerar PDF: '+e.message,'var(--vermelho)'); }
 }
 /* ----- Correção do texto das observações com IA (Google Gemini) ----- */
-async function corrigirObs(){
+async function _chamarIA(prompt){
+  const url='https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key='+encodeURIComponent(GEMINI_API_KEY);
+  const corpo=JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{temperature:0.3}});
+  let j=null, ultimo='';
+  for(let tent=0; tent<3; tent++){
+    const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:corpo});
+    j=await r.json();
+    if(r.ok && !j.error) break;
+    const code=(j.error&&j.error.code)||r.status;
+    ultimo=(j.error&&j.error.message)||('HTTP '+r.status);
+    if(code===429||code===503||code===500){ await new Promise(res=>setTimeout(res,2500*(tent+1))); continue; }
+    throw new Error(ultimo);
+  }
+  if(j.error) throw new Error(ultimo);
+  const cand=(j.candidates||[])[0];
+  if(cand && cand.finishReason==='SAFETY') throw new Error('a IA bloqueou este texto; ajuste as palavras e tente de novo');
+  const out=cand && cand.content && cand.content.parts && cand.content.parts[0] && cand.content.parts[0].text;
+  if(!out) throw new Error('a IA não retornou texto; tente de novo');
+  return out.trim();
+}
+async function _rodarIA(modo){
   const ta=document.getElementById('obs'); const texto=ta.value.trim();
   const st=document.getElementById('status-obs');
-  const setMsg=(m,cor)=>{ st.textContent=m; st.style.color=cor||'var(--verde)'; if(m) setTimeout(()=>{if(st.textContent===m)st.textContent='';},6000); };
+  const setMsg=(m,cor)=>{ st.textContent=m; st.style.color=cor||'var(--verde)'; if(m) setTimeout(()=>{if(st.textContent===m)st.textContent='';},7000); };
   if(!texto){ setMsg('Escreva uma observação primeiro.','var(--vermelho)'); return; }
-  if(!GEMINI_API_KEY || GEMINI_API_KEY.length < 20){ setMsg('Correção por IA ainda não configurada (falta a chave).','var(--vermelho)'); return; }
-  const btn=document.getElementById('btn-corrigir'); const o=btn.textContent; btn.disabled=true; btn.textContent='Corrigindo...';
-  const prompt='Você é um revisor de português do Brasil. Corrija ortografia, acentuação, pontuação e gramática (incluindo concordância) do texto abaixo. Mantenha o sentido, o tom e as informações. Não acrescente nem remova conteúdo. Responda APENAS com o texto corrigido, sem aspas, sem comentários e sem explicações.\n\nTexto:\n'+texto;
-  const url='https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key='+encodeURIComponent(GEMINI_API_KEY);
-  const corpo=JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{temperature:0.2}});
+  if(!GEMINI_API_KEY || GEMINI_API_KEY.length < 20){ setMsg('IA ainda não configurada (falta a chave).','var(--vermelho)'); return; }
+  const bC=document.getElementById('btn-corrigir'), bM=document.getElementById('btn-melhorar');
+  const btn=modo==='melhorar'?bM:bC; const oC=bC.textContent, oM=bM.textContent;
+  bC.disabled=true; bM.disabled=true; btn.textContent=modo==='melhorar'?'Melhorando...':'Corrigindo...';
+  const prompt = (modo==='melhorar')
+    ? 'Você é um professor de natação infantil escrevendo uma observação para os pais de um aluno. Reescreva o texto abaixo de forma clara, gentil e profissional, mantendo EXATAMENTE o mesmo sentido e as mesmas informações — não invente fatos, notas, nomes nem acontecimentos, e não acrescente elogios que não estejam no texto. Corrija também os erros de português. Responda APENAS com o texto final, sem aspas, sem comentários e sem explicações.\n\nTexto:\n'+texto
+    : 'Você é um revisor de português do Brasil. Corrija ortografia, acentuação, pontuação e gramática (incluindo concordância) do texto abaixo. Mantenha o sentido, o tom e as informações. Não acrescente nem remova conteúdo. Responda APENAS com o texto corrigido, sem aspas, sem comentários e sem explicações.\n\nTexto:\n'+texto;
   try{
-    let j=null, ultimo='';
-    for(let tent=0; tent<3; tent++){
-      const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:corpo});
-      j=await r.json();
-      if(r.ok && !j.error) break;
-      const code=(j.error&&j.error.code)||r.status;
-      ultimo=(j.error&&j.error.message)||('HTTP '+r.status);
-      if(code===429||code===503||code===500){ btn.textContent='IA ocupada, tentando...'; await new Promise(res=>setTimeout(res,2500*(tent+1))); continue; }
-      throw new Error(ultimo);
-    }
-    if(j.error) throw new Error(ultimo);
-    const cand=(j.candidates||[])[0];
-    if(cand && cand.finishReason==='SAFETY') throw new Error('a IA bloqueou este texto; ajuste as palavras e tente de novo');
-    const out=cand && cand.content && cand.content.parts && cand.content.parts[0] && cand.content.parts[0].text;
-    if(!out) throw new Error('a IA não retornou texto; tente de novo');
-    ta.value=out.trim(); atualizar();
-    setMsg('✓ Texto corrigido pela IA.');
+    const out=await _chamarIA(prompt);
+    ta.value=out; atualizar();
+    setMsg(modo==='melhorar'?'✓ Texto melhorado pela IA.':'✓ Texto corrigido pela IA.');
   }catch(e){
     let m=(e&&e.message)||String(e);
     if(/quota|rate|429|exceeded|RESOURCE_EXHAUSTED/i.test(m)) m='a IA atingiu o limite de uso do momento — espere alguns segundos e tente de novo';
     else if(/API key not valid|API_KEY_INVALID|INVALID_ARGUMENT|400/i.test(m)) m='a chave da IA está inválida ou ausente (avise o administrador)';
-    setMsg('Não foi possível corrigir: '+m,'var(--vermelho)');
+    setMsg('Não foi possível: '+m,'var(--vermelho)');
   }
-  btn.disabled=false; btn.textContent=o;
+  bC.disabled=false; bM.disabled=false; bC.textContent=oC; bM.textContent=oM;
 }
+function corrigirObs(){ return _rodarIA('corrigir'); }
+function melhorarObs(){ return _rodarIA('melhorar'); }
 /* ----- Logout por inatividade (30 min) ----- */
 let inatividadeTimer=null;
 function resetInatividade(){
