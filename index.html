@@ -112,6 +112,7 @@
   .lista-wrap{max-width:1000px;margin:22px auto;padding:0 16px}
   .lista-wrap .topo{display:flex;gap:12px;align-items:center;margin-bottom:14px;flex-wrap:wrap}
   .lista-wrap input.busca{flex:1;min-width:220px;padding:11px 13px;border:1px solid var(--borda);border-radius:8px;font-size:14px}
+  .filtro-sel{flex:0 1 240px;padding:11px 13px;border:1px solid var(--borda);border-radius:8px;font-size:14px;background:#fff}
   table.lista{width:100%;border-collapse:collapse;background:#fff;border-radius:8px;overflow:hidden;box-shadow:0 2px 10px rgba(0,0,0,.06)}
   table.lista th,table.lista td{padding:11px 12px;text-align:left;font-size:13.5px;border-bottom:1px solid #eef1f4}
   table.lista th{background:var(--azul);color:#fff;font-weight:600}
@@ -282,6 +283,7 @@
     <div class="lista-wrap">
       <div class="topo">
         <input class="busca" id="busca" type="text" placeholder="🔎 Buscar por nome do aluno..." oninput="renderLista()">
+        <select id="filtro-prof" class="filtro-sel hidden" onchange="renderLista()"><option value="">Todos os professores</option></select>
         <button class="btn ghost" onclick="carregarLista()">↻ Atualizar</button>
         <button id="btn-export-massa" class="btn pdf hidden" onclick="exportarSelecionadas()">⬇ Exportar selecionadas (PDF)</button>
         <button id="btn-excluir-massa" class="btn del-massa hidden" onclick="excluirSelecionadas()">🗑 Excluir selecionadas</button>
@@ -429,6 +431,7 @@ function liberarApp(u){
   document.getElementById('btn-export-massa').classList.toggle('hidden',!podeExportar());
   document.getElementById('btn-excluir-massa').classList.toggle('hidden',!podeEditar());
   document.getElementById('btn-salvar').classList.toggle('hidden',!podeEditar());
+  document.getElementById('filtro-prof').classList.toggle('hidden',!podeVerTodas());
   mostrarAba('nova'); carregarLista(); resetInatividade();
 }
 function mostrarGate(status){
@@ -539,9 +542,18 @@ function valOrd(a,f){
   return '';
 }
 function ordenar(f){ if(sortField===f){ sortDir=-sortDir; } else { sortField=f; sortDir=1; } renderLista(); }
+function popularFiltroProf(){
+  const sel=document.getElementById('filtro-prof'); if(!sel) return;
+  const atual=sel.value;
+  const nomes=[...new Set(todasAvaliacoes.map(a=>a.professor||'').filter(Boolean))].sort((a,b)=>a.localeCompare(b,'pt',{sensitivity:'base'}));
+  sel.innerHTML='<option value="">Todos os professores</option>'+nomes.map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join('');
+  if(nomes.includes(atual)) sel.value=atual;
+}
 function renderLista(){
+  popularFiltroProf();
   const termo=(document.getElementById('busca').value||'').toLowerCase().trim();
-  let itens=todasAvaliacoes.filter(a=>!termo||(a.alunoLower||'').includes(termo));
+  const fprof=(document.getElementById('filtro-prof')||{}).value||'';
+  let itens=todasAvaliacoes.filter(a=>(!termo||(a.alunoLower||'').includes(termo)) && (!fprof||(a.professor||'')===fprof));
   if(sortField){ itens=itens.slice().sort((a,b)=>{ const x=valOrd(a,sortField),y=valOrd(b,sortField); return (x<y?-1:x>y?1:0)*sortDir; }); }
   const cont=document.getElementById('lista-conteudo');
   if(!itens.length){ cont.innerHTML='<div class="vazio">'+(termo?'Nenhum aluno encontrado.':'Nenhuma avaliação salva ainda.')+'</div>'; return; }
