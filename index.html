@@ -113,6 +113,8 @@
   .lista-wrap .topo{display:flex;gap:12px;align-items:center;margin-bottom:14px;flex-wrap:wrap}
   .lista-wrap input.busca{flex:1;min-width:220px;padding:11px 13px;border:1px solid var(--borda);border-radius:8px;font-size:14px}
   .filtro-sel{flex:0 1 240px;padding:11px 13px;border:1px solid var(--borda);border-radius:8px;font-size:14px;background:#fff}
+  .contador{font-size:13px;color:#65707b;margin:0 2px 8px;min-height:16px}
+  .contador b{color:var(--azul)}
   table.lista{width:100%;border-collapse:collapse;background:#fff;border-radius:8px;overflow:hidden;box-shadow:0 2px 10px rgba(0,0,0,.06)}
   table.lista th,table.lista td{padding:11px 12px;text-align:left;font-size:13.5px;border-bottom:1px solid #eef1f4}
   table.lista th{background:var(--azul);color:#fff;font-weight:600}
@@ -288,6 +290,7 @@
         <button id="btn-export-massa" class="btn pdf hidden" onclick="exportarSelecionadas()">⬇ Exportar selecionadas (PDF)</button>
         <button id="btn-excluir-massa" class="btn del-massa hidden" onclick="excluirSelecionadas()">🗑 Excluir selecionadas</button>
       </div>
+      <div id="contador-sel" class="contador"></div>
       <div id="lista-conteudo"></div>
     </div>
   </div>
@@ -566,10 +569,19 @@ function renderLista(){
   itens.forEach(a=>{
     const pdfBtn=exp?`<button class="mini-pdf" onclick="exportarUmaPorId('${a.id}')">PDF</button>`:'';
     const delBtn=edt?`<button class="mini-del" onclick="excluir('${a.id}')">Excluir</button>`:'';
-    const chk=marca?`<td style="text-align:center"><input type="checkbox" class="sel-av" value="${a.id}"></td>`:'';
+    const chk=marca?`<td style="text-align:center"><input type="checkbox" class="sel-av" value="${a.id}" onchange="atualizarContador()"></td>`:'';
     h+=`<tr>${chk}<td><b>${esc(a.aluno)}</b></td><td>Nível ${esc(a.nivel)}</td><td>${esc(a.semestre||'')} ${esc(a.ano||'')}</td><td>${esc(a.data||'')}</td><td>${esc(a.professor||'')}</td>
     <td><div class="acoes"><button class="mini-open" onclick="abrir('${a.id}')">Abrir</button>${pdfBtn}${delBtn}</div></td></tr>`; });
-  h+='</tbody></table>'; cont.innerHTML=h;
+  h+='</tbody></table>'; cont.innerHTML=h; atualizarContador();
+}
+function atualizarContador(){
+  const el=document.getElementById('contador-sel'); if(!el) return;
+  const total=document.querySelectorAll('.sel-av').length;
+  const sel=document.querySelectorAll('.sel-av:checked').length;
+  if(!total){ el.innerHTML=''; return; }
+  el.innerHTML = sel>0
+    ? ('<b>'+sel+'</b> de <b>'+total+'</b> selecionada'+(sel>1?'s':''))
+    : ('<b>'+total+'</b> avaliaç'+(total>1?'ões':'ão')+' no filtro');
 }
 function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 function abrir(id,irPDF){
@@ -725,7 +737,7 @@ async function pdfDoc(a){
 async function exportarUma(a){ const pdf=await pdfDoc(a); pdf.save(nomeArq(a)); }
 function exportarUmaPorId(id){ const a=todasAvaliacoes.find(x=>x.id===id); if(a) exportarUma(a).catch(e=>alert('Erro ao gerar PDF: '+e.message)); }
 function baixarBlob(blob,nome){ const u=URL.createObjectURL(blob); const x=document.createElement('a'); x.href=u; x.download=nome; document.body.appendChild(x); x.click(); x.remove(); setTimeout(()=>URL.revokeObjectURL(u),3000); }
-function selTodas(cb){ document.querySelectorAll('.sel-av').forEach(c=>c.checked=cb.checked); }
+function selTodas(cb){ document.querySelectorAll('.sel-av').forEach(c=>c.checked=cb.checked); atualizarContador(); }
 async function exportarSelecionadas(){
   if(!podeExportar()) return;
   const ids=[...document.querySelectorAll('.sel-av:checked')].map(c=>c.value);
