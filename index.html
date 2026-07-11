@@ -332,7 +332,7 @@ let auth=null, db=null, usuarioAtual=null, ehAdmin=false, papelAtual='professor'
 function podeVerTodas(){ return ehAdmin || papelAtual==='coordenador' || papelAtual==='recepcao'; }
 function podeExportar(){ return ehAdmin || papelAtual==='coordenador' || papelAtual==='recepcao'; }
 function podeEditar(){ return ehAdmin || papelAtual==='coordenador' || papelAtual==='professor'; }
-let nomeExibicao='', todosUsuarios=[], sortProfField=null, sortProfDir=1;
+let nomeExibicao='', todosUsuarios=[], sortProfField=null, sortProfDir=1, alunoCarregado='';
 const CONFIGURADO = firebaseConfig.apiKey && firebaseConfig.apiKey !== "COLE_AQUI";
 
 if(CONFIGURADO){
@@ -512,6 +512,8 @@ function salvar(){
   if(!podeEditar()){ status('Seu perfil não permite criar/editar avaliações.','var(--vermelho)'); return; }
   const aluno=document.getElementById('aluno').value.trim();
   if(!aluno){ status('Digite o nome do aluno antes de salvar.','var(--vermelho)'); document.getElementById('aluno').focus(); return; }
+  // Se o nome do aluno mudou em relação à ficha aberta, é uma NOVA avaliação (não sobrescreve a anterior)
+  if(editandoId && aluno.toLowerCase() !== (alunoCarregado||'').trim().toLowerCase()){ editandoId=null; }
   const dados={ aluno, alunoLower:aluno.toLowerCase(),
     nivel:document.getElementById('nivel').value, semestre:document.getElementById('semestre').value,
     ano:document.getElementById('ano').value, data:document.getElementById('data').value,
@@ -520,7 +522,8 @@ function salvar(){
     atualizadoEm:firebase.firestore.FieldValue.serverTimestamp() };
   const ref=editandoId ? db.collection('avaliacoes').doc(editandoId).set(dados,{merge:true})
                        : db.collection('avaliacoes').add({...dados, criadoEm:firebase.firestore.FieldValue.serverTimestamp()});
-  Promise.resolve(ref).then(r=>{ if(!editandoId&&r&&r.id)editandoId=r.id; status('✓ Avaliação salva no banco de dados.'); carregarLista(); })
+  const nova=!editandoId;
+  Promise.resolve(ref).then(r=>{ if(!editandoId&&r&&r.id)editandoId=r.id; alunoCarregado=aluno; status(nova?('✓ Nova avaliação salva ('+aluno+').'):('✓ Avaliação de '+aluno+' atualizada.')); carregarLista(); })
     .catch(e=>status('Erro ao salvar: '+e.message,'var(--vermelho)'));
 }
 function carregarLista(){
@@ -585,7 +588,7 @@ function atualizarContador(){
 }
 function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 function abrir(id,irPDF){
-  const a=todasAvaliacoes.find(x=>x.id===id); if(!a)return; editandoId=id;
+  const a=todasAvaliacoes.find(x=>x.id===id); if(!a)return; editandoId=id; alunoCarregado=a.aluno||'';
   document.getElementById('aluno').value=a.aluno||''; document.getElementById('nivel').value=a.nivel||'1';
   document.getElementById('semestre').value=a.semestre||'1º Semestre'; document.getElementById('ano').value=a.ano||'2026';
   document.getElementById('data').value=a.data||''; document.getElementById('r-prof').textContent=a.professor||'Professor(a)';
@@ -618,7 +621,7 @@ async function excluirSelecionadas(){
   btn.disabled=false; btn.textContent=o;
 }
 function novaAvaliacao(){
-  editandoId=null; document.getElementById('aluno').value=''; document.getElementById('data').value=hoje();
+  editandoId=null; alunoCarregado=''; document.getElementById('aluno').value=''; document.getElementById('data').value=hoje();
   document.getElementById('obs').value='';
   document.getElementById('r-prof').textContent=nomeExibicao||'Professor(a)';
   montarTabela(document.getElementById('nivel').value); atualizar(); status('Nova avaliação em branco.');
